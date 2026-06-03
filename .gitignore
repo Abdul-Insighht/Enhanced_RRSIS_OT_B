@@ -16,8 +16,8 @@ output/
 checkpoints/
 
 # Data
-data/*
-!data/*.py
+/data/*
+!/data/*.py
 datasets/
 
 # Logs
