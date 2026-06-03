@@ -286,6 +286,16 @@ class Enhanced_RRSIS_UOT(nn.Module):
 
     def _sam3_mask_decode(self, image_embed, high_res_feats, points, point_labels, dense_mask):
         tracker_model = self.sam3.inst_interactive_predictor.model
+        
+        # Project high_res_feats if they have the raw transformer_dim (256)
+        feat_s0, feat_s1 = high_res_feats
+        if feat_s0.shape[1] == tracker_model.sam_mask_decoder.transformer_dim:
+            if hasattr(tracker_model.sam_mask_decoder, 'conv_s0'):
+                feat_s0 = tracker_model.sam_mask_decoder.conv_s0(feat_s0)
+            if hasattr(tracker_model.sam_mask_decoder, 'conv_s1'):
+                feat_s1 = tracker_model.sam_mask_decoder.conv_s1(feat_s1)
+            high_res_feats = [feat_s0, feat_s1]
+
         if points is not None and points.shape[1] > 0:
             concat_points = (points, point_labels)
         else:
