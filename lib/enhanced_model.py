@@ -321,7 +321,7 @@ class Enhanced_RRSIS_UOT(nn.Module):
             image_pe=image_pe,
             sparse_prompt_embeddings=sparse_embeddings,
             dense_prompt_embeddings=dense_embeddings,
-            multimask_output=True,
+            multimask_output=False,
             repeat_image=False,
             high_res_features=high_res_feats,
         )
