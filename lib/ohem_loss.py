@@ -347,19 +347,15 @@ class EnhancedOHEMLoss(nn.Module):
                     union = pred_binary.sum(dim=(2, 3)) + gt_expanded.sum(dim=(2, 3)) - intersection
                     per_query_iou = (intersection + 1e-6) / (union + 1e-6)  # (B, N)
 
-                    # Best query -> 1.0, others -> 0.0
-                    target_scores = torch.zeros_like(scores)
-                    best_query = per_query_iou.argmax(dim=1)  # (B,)
-                    target_scores[torch.arange(B, device=device), best_query] = 1.0
-                    # Zero out targets for empty-mask samples
-                    target_scores = target_scores * has_object.unsqueeze(1)
+                    # Use actual continuous IoU as target for the IoU head (standard SAM practice)
+                    target_scores = per_query_iou.detach() * has_object.unsqueeze(1)
                 else:
                     # Fallback for empty masks: all targets = 0
                     target_scores = torch.zeros_like(scores)
 
-            loss = F.binary_cross_entropy_with_logits(
-                scores, target_scores, reduction='mean'
-            )
+            # SAM IoU head is trained with MSE between predicted IoU (sigmoid or raw) and actual IoU
+            # We apply sigmoid just in case they are raw logits
+            loss = F.mse_loss(torch.sigmoid(scores), target_scores, reduction='mean')
             return loss
 
         return torch.tensor(0.0, device=device)
