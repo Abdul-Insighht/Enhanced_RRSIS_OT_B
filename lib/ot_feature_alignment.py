@@ -77,10 +77,15 @@ class OTFeatureAligner(nn.Module):
             K = torch.exp(-cost_matrix / self.reg)
             K = K.clamp(min=1e-8)  # Numerical stability
 
+            tau = 0.5  # Marginal relaxation parameter for Unbalanced OT
             u = torch.ones_like(mu)
             for _ in range(self.num_iter):
-                v = nu / (torch.bmm(K.transpose(1, 2), u.unsqueeze(2)).squeeze(2) + 1e-8)
-                u = mu / (torch.bmm(K, v.unsqueeze(2)).squeeze(2) + 1e-8)
+                # Unbalanced Sinkhorn updates
+                KTu = torch.bmm(K.transpose(1, 2), u.unsqueeze(2)).squeeze(2) + 1e-8
+                v = (nu / KTu) ** (tau / (tau + self.reg))
+                
+                Kv = torch.bmm(K, v.unsqueeze(2)).squeeze(2) + 1e-8
+                u = (mu / Kv) ** (tau / (tau + self.reg))
 
             # Transport plan: P = diag(u) @ K @ diag(v)
             P = u.unsqueeze(2) * K * v.unsqueeze(1)
