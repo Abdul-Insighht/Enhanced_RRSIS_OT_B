@@ -297,9 +297,18 @@ class Enhanced_RRSIS_UOT(nn.Module):
             masks=dense_mask,
         )
 
+        image_pe = tracker_model.sam_prompt_encoder.get_dense_pe()
+        if image_pe.shape[-2:] != image_embed.shape[-2:]:
+            image_pe = F.interpolate(
+                image_pe, 
+                size=image_embed.shape[-2:], 
+                mode='bilinear', 
+                align_corners=False
+            )
+
         masks, iou_predictions, _, _ = tracker_model.sam_mask_decoder(
             image_embeddings=image_embed,
-            image_pe=tracker_model.sam_prompt_encoder.get_dense_pe(),
+            image_pe=image_pe,
             sparse_prompt_embeddings=sparse_embeddings,
             dense_prompt_embeddings=dense_embeddings,
             multimask_output=True,
