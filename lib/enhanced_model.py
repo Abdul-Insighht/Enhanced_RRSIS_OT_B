@@ -462,7 +462,7 @@ class Enhanced_RRSIS_UOT(nn.Module):
                 best_mask, size=(self.image_size, self.image_size),
                 mode='bilinear', align_corners=False
             )
-            out = {'pred_masks': best_mask_resized, 'iou_scores': iou_scores, 'all_query_masks': masks}
+            out = {'pred_masks': best_mask_resized, 'pred_logits': iou_scores.unsqueeze(-1), 'all_query_masks': masks}
             result = out
         else:
             # ====== Step 4: Encode Prompt ======
