@@ -1,0 +1,28 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+env.bak/
+venv.bak/
+
+# Checkpoints and models
+*.pth
+*.pt
+output/
+checkpoints/
+
+# Data
+data/
+datasets/
+
+# Logs
+*.log
+
+# IDEs
+.idea/
+.vscode/
+*.swp
