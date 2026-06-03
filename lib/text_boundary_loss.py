@@ -55,8 +55,14 @@ class TextGuidedBoundaryLoss(nn.Module):
                 vis_feats = vis_feats.flatten(2).transpose(1, 2) # (B, HW, C)
             
             # Simple attention: dot product
-            # Just take max pool of text feats as global text rep
-            global_text = text_feats.max(dim=1)[0].unsqueeze(2) # (B, C, 1)
+            # Determine if format is (seq, B, C) or (B, seq, C)
+            if text_feats.dim() == 3:
+                if text_feats.size(1) == B:
+                    global_text = text_feats.max(dim=0)[0].unsqueeze(2) # (B, C, 1)
+                else:
+                    global_text = text_feats.max(dim=1)[0].unsqueeze(2) # (B, C, 1)
+            else:
+                global_text = text_feats.unsqueeze(2)
             
             # Attn: (B, HW, C) x (B, C, 1) -> (B, HW, 1)
             attn = torch.bmm(vis_feats, global_text).squeeze(2) # (B, HW)
