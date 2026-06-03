@@ -260,7 +260,7 @@ class EnhancedOHEMLoss(nn.Module):
         focal_dice_weight=1.0,
         boundary_weight=0.5,
         hard_ratio=0.3,
-        focal_gamma=2.0,
+        focal_gamma=3.0,  # Increased from 2.0 to 3.0 to strongly penalize hard/small objects
         score_weight=1.0,
     ):
         super().__init__()

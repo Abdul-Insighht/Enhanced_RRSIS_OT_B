@@ -19,31 +19,18 @@ class GroundingAwarePromptGenerator(nn.Module):
         self.num_points = num_points
         print(f"[GPG] Initialized Grounding-Aware Prompt Generator (num_points={num_points})")
 
-    @torch.no_grad()
+    # Removed @torch.no_grad() so gradients can flow to OT Module!
     def forward(self, P, text_mask, original_image_size, device):
         """
         Generate geometric prompts from the OT transport plan.
-
-        Args:
-            P: (B, HW, seq) transport plan from the deepest OT aligner.
-            text_mask: (B, seq) boolean mask (True = padding).
-            original_image_size: int, size of the input image (e.g., 504).
-            device: torch.device.
-
-        Returns:
-            points: (B, num_points, 2) normalized coordinates [0, 1] or absolute?
-                    SAM3 expects absolute coordinates if scaled, but for the FindStage 
-                    we can provide absolute pixel coordinates.
-            points_mask: (B, num_points) boolean mask.
-            dense_mask: (B, 1, 256, 256) dense mask prior for SAM3.
+        Now uses Differentiable Center of Mass to allow gradient backpropagation.
         """
         B, HW, seq = P.shape
         H = W = int(HW ** 0.5)
 
-        # 1. Mask out padding tokens in the transport plan
+        # 1. Mask out padding tokens
         if text_mask is not None:
-            # text_mask is True for padding. We want to keep valid tokens (False)
-            valid_mask = (~text_mask).unsqueeze(1)  # (B, 1, seq)
+            valid_mask = (~text_mask).unsqueeze(1)
             P_valid = P * valid_mask.float()
         else:
             P_valid = P
@@ -51,44 +38,55 @@ class GroundingAwarePromptGenerator(nn.Module):
         # 2. Aggregate over sequence to get a global spatial heatmap
         heatmap = P_valid.sum(dim=-1)  # (B, HW)
         heatmap = heatmap.view(B, H, W)
-
-        # 3. Scale-Aware Prompting (SAP) from ReSaP & Sparse Prompts Generation
         flat_heatmap = heatmap.view(B, -1)
-        
-        # Measure target area ratio for scale awareness
-        b_max = flat_heatmap.max(dim=1, keepdim=True)[0] + 1e-6
-        norm_heatmap = flat_heatmap / b_max
-        active_area = (norm_heatmap > 0.5).sum(dim=1).float() / (H * W)
-        
-        # Extract max 5 points for structure coverage
-        K_max = 5
-        _, topk_idx = torch.topk(flat_heatmap, K_max, dim=-1)
 
-        # Convert 1D indices to 2D (y, x) coordinates in the feature map space
-        y_feat = torch.div(topk_idx, W, rounding_mode='floor')
-        x_feat = topk_idx % W
+        # 3. Differentiable Center of Mass (Spatial Expectation) for the primary point
+        temperature = 0.1  # Sharpen the peak to act like argmax but differentiable
+        prob_map = F.softmax(flat_heatmap / temperature, dim=-1)
+        prob_map_2d = prob_map.view(B, H, W)
 
-        # Scale coordinates to the original image size
+        # Create coordinate grids
+        y_coords = torch.arange(H, device=device, dtype=torch.float32).view(H, 1).expand(H, W)
+        x_coords = torch.arange(W, device=device, dtype=torch.float32).view(1, W).expand(H, W)
+
+        # Expected coordinates (Center of Mass)
+        expected_y = (prob_map_2d * y_coords).sum(dim=(1, 2))  # (B,)
+        expected_x = (prob_map_2d * x_coords).sum(dim=(1, 2))  # (B,)
+
         scale_y = original_image_size / H
         scale_x = original_image_size / W
 
-        y_img = (y_feat.float() + 0.5) * scale_y
-        x_img = (x_feat.float() + 0.5) * scale_x
+        y_img_com = (expected_y + 0.5) * scale_y
+        x_img_com = (expected_x + 0.5) * scale_x
+        primary_point = torch.stack((x_img_com, y_img_com), dim=-1)  # (B, 2)
 
-        # SAM3 expects points as (x, y)
-        points = torch.stack((x_img, y_img), dim=-1)  # (B, K_max, 2)
-        
-        # Initialize masks and labels (1 = foreground point, 0 = padding/ignore)
+        # 4. Extract remaining points via standard detached top-k
+        K_max = 5
+        _, topk_idx = torch.topk(flat_heatmap.detach(), K_max, dim=-1)
+        y_feat = torch.div(topk_idx, W, rounding_mode='floor')
+        x_feat = topk_idx % W
+
+        y_img_topk = (y_feat.float() + 0.5) * scale_y
+        x_img_topk = (x_feat.float() + 0.5) * scale_x
+        points = torch.stack((x_img_topk, y_img_topk), dim=-1)  # (B, K_max, 2)
+
+        # Replace the first point with our differentiable Center of Mass point!
+        # This allows gradients to flow directly through the primary point to the OT map.
+        points = points.clone()
+        points[:, 0, :] = primary_point
+
+        # 5. Scale-Aware Dynamic Logic (Detached)
+        b_max = flat_heatmap.detach().max(dim=1, keepdim=True)[0] + 1e-6
+        norm_heatmap = flat_heatmap.detach() / b_max
+        active_area = (norm_heatmap > 0.5).sum(dim=1).float() / (H * W)
+
         points_mask = torch.ones((B, K_max), dtype=torch.bool, device=device)
         point_labels = torch.ones((B, K_max), dtype=torch.long, device=device)
-        
-        # Apply dynamic scale-adaptive logic per image in the batch
+
         for b in range(B):
             if active_area[b] < 0.01:
                 # Tiny object: Keep only 1 center point to avoid background noise
                 points_mask[b, 1:] = False
                 point_labels[b, 1:] = 0
 
-        # We intentionally omit the dense_mask because SAM3's Image Predictor GeometryEncoder 
-        # is not pre-trained with a MaskEncoder. Passing it would introduce untrained parameters.
         return points, points_mask, point_labels
