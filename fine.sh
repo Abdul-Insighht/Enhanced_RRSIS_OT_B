@@ -72,7 +72,7 @@ python train.py \
     --ot_reg 0.1 \
     --ot_num_iter 10 \
     --num_ot_scales 3 \
-    --focal_gamma 3.0 \
+    --focal_gamma 2.0 \
     --use_native_decoder \
     --use_dense_mask_prompt \
     --patience 8 \

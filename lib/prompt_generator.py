@@ -87,6 +87,6 @@ class GroundingAwarePromptGenerator(nn.Module):
             if active_area[b] < 0.01:
                 # Tiny object: Keep only 1 center point to avoid background noise
                 points_mask[b, 1:] = False
-                point_labels[b, 1:] = 0
+                point_labels[b, 1:] = -1  # CRITICAL: -1 is padding in SAM, 0 is negative (background) point!
 
         return points, points_mask, point_labels
